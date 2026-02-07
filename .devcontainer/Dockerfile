@@ -8,6 +8,9 @@ RUN apt-get update && apt-get install -y \
     sudo \
     && rm -rf /var/lib/apt/lists/*
 
+# Install uv (as root, will be available system-wide)
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
 # Create a non-root user
 ARG USERNAME=vscode
 ARG USER_UID=1000

@@ -3,9 +3,6 @@
   "build": {
     "dockerfile": "Dockerfile"
   },
-  "features": {
-    "ghcr.io/devcontainers-contrib/features/uv:2": {}
-  },
   "customizations": {
     "vscode": {
       "extensions": [
