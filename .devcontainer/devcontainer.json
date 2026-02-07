@@ -20,8 +20,5 @@
     }
   },
   "postCreateCommand": "uv sync",
-  "remoteUser": "vscode",
-  "mounts": [
-    "source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,readonly,type=bind,consistency=cached"
-  ]
+  "remoteUser": "vscode"
 }
