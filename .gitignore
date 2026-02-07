@@ -5,3 +5,6 @@ __pycache__
 
 # Docker
 .env.local
+
+# Backups
+/backups

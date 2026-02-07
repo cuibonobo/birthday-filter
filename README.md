@@ -15,6 +15,27 @@ parses out only the contacts that are starred, and creates a calendar
 out of them. For both of the download and upload tasks, the existing
 tool pimsync is used because there is no need to reinvent the wheel.
 
+## Backup Your Data
+
+Before using any of the scripts, create a backup of your CardDAV
+contacts:
+
+```
+poetry run python backup_contacts.py
+```
+
+This will:
+- Download all your contacts from CardDAV (read-only)
+- Save them to a timestamped directory in `./backups/`
+- Create a backup info file with details
+
+The main birthday filter script is read-only for contacts and only
+writes to your calendar. However, `mark_vips.py` does write to CardDAV
+(to update the VIP list), so having a backup provides peace of mind.
+
+Backups are saved as `.vcf` files that can be imported back through
+Fastmail or any CardDAV client if needed.
+
 ## Marking Contacts as VIPs
 
 Before running the birthday filter, you need to mark which contacts
