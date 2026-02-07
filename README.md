@@ -60,6 +60,15 @@ This presents a keyboard-driven interface where you can:
 This is much faster than clicking through each contact individually in
 the Fastmail web interface.
 
+## Development
+
+This project includes a dev container configuration for easy development
+with VS Code. Open the project in VS Code and use "Reopen in Container"
+to automatically set up a development environment with uv and pimsync
+pre-installed.
+
+Alternatively, install dependencies locally with [uv](https://docs.astral.sh/uv/).
+
 ## Usage
 
 Install [pimsync](https://pimsync.whynothugo.nl/install.html).
