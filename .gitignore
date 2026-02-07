@@ -3,6 +3,10 @@
 /data
 __pycache__
 
+# uv
+.venv
+uv.lock
+
 # Docker
 .env.local
 

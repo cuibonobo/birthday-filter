@@ -10,6 +10,9 @@ RUN apt-get update && apt-get install -y \
 RUN pipx install pimsync && pipx ensurepath
 ENV PATH="/root/.local/bin:${PATH}"
 
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
 # Install supercronic
 ENV SUPERCRONIC_VERSION=v0.2.33 \
     SUPERCRONIC_SHA1SUM=71b0d58cc53f6bd72cf2f293e09e294b79c666d8 \
@@ -23,11 +26,11 @@ RUN curl -fsSLO "https://github.com/aptible/supercronic/releases/download/${SUPE
 WORKDIR /app
 
 # Copy project files
-COPY pyproject.toml poetry.lock* ./
+COPY pyproject.toml ./
 COPY birthday_filter/ ./birthday_filter/
 
 # Install Python dependencies
-RUN pip install --no-cache-dir python-dotenv
+RUN uv pip install --system --no-cache -e .
 
 # Create data directory
 RUN mkdir -p /data

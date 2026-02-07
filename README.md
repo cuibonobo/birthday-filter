@@ -21,7 +21,7 @@ Before using any of the scripts, create a backup of your CardDAV
 contacts:
 
 ```
-poetry run python backup_contacts.py
+uv run backup_contacts.py
 ```
 
 This will:
@@ -46,7 +46,7 @@ To efficiently mark contacts as VIPs from your contact list, use the
 interactive script:
 
 ```
-poetry run python mark_vips.py
+uv run mark_vips.py
 ```
 
 This presents a keyboard-driven interface where you can:
@@ -97,12 +97,10 @@ names. On Fastmail for example, these are UUIDs and you can find them
 by clicking "export" next to a calendar in the settings and noting the
 UUID in the URL.
 
-Install dependencies with [Poetry](https://python-poetry.org/) or
-equivalent following the versions in `pyproject.toml`, `poetry.lock`.
-Execute
+Install [uv](https://docs.astral.sh/uv/) and execute
 
 ```
-poetry run python -m birthday_filter
+uv run -m birthday_filter
 ```
 
 on a cron job with the desired frequency. Your events should show up
