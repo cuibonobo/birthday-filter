@@ -1,0 +1,4 @@
+# Run birthday filter daily at 6 AM
+0 6 * * * cd /app && python -m birthday_filter
+
+# Empty line required at end of crontab

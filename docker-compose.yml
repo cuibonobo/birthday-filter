@@ -1,0 +1,11 @@
+services:
+  birthday-filter:
+    build: .
+    container_name: birthday-filter
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/data
+    environment:
+      - TZ=America/New_York  # Adjust to your timezone
