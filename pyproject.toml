@@ -3,7 +3,8 @@ name = "birthday-filter"
 version = "0.1.0"
 description = "Creates a copy of a birthday calendar filtered to only specific people"
 authors = [
-    {name = "Radian LLC", email = "contact+birthday-filter@radian.codes"}
+    {name = "Radian LLC", email = "contact+birthday-filter@radian.codes"},
+    {name = "Jen Garcia", email = "jen+birthday-filter@haverstack.com"}
 ]
 readme = "README.md"
 requires-python = ">=3.10"
