@@ -12,6 +12,7 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 import birthday_filter.config as cfg
 
@@ -20,7 +21,7 @@ def log(msg):
     print(f"[backup-contacts] {msg}")
 
 
-def backup_contacts(backup_dir: Path = None):
+def backup_contacts(backup_dir: Optional[Path] = None):
     """
     Download and backup all CardDAV contacts.
 
