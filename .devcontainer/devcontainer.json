@@ -3,6 +3,9 @@
   "build": {
     "dockerfile": "Dockerfile"
   },
+  "containerEnv": {
+    "UV_LINK_MODE": "copy"
+  },
   "customizations": {
     "vscode": {
       "extensions": [
