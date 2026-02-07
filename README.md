@@ -15,6 +15,30 @@ parses out only the contacts that are starred, and creates a calendar
 out of them. For both of the download and upload tasks, the existing
 tool pimsync is used because there is no need to reinvent the wheel.
 
+## Marking Contacts as VIPs
+
+Before running the birthday filter, you need to mark which contacts
+should have their birthdays tracked. This project uses Fastmail's VIP
+feature (the star icon).
+
+To efficiently mark contacts as VIPs from your contact list, use the
+interactive script:
+
+```
+poetry run python mark_vips.py
+```
+
+This presents a keyboard-driven interface where you can:
+- Navigate with **↑/↓** arrow keys or **j/k** (vim-style)
+- Toggle VIP status with **Space**
+- Search/filter contacts by pressing **/**
+- Mark all visible contacts with **a**, unmark all with **u**
+- Change pages with **PgUp/PgDn**
+- Save and quit with **w**, quit without saving with **q**
+
+This is much faster than clicking through each contact individually in
+the Fastmail web interface.
+
 ## Usage
 
 Install [pimsync](https://pimsync.whynothugo.nl/install.html).
@@ -62,3 +86,27 @@ poetry run python -m birthday_filter
 
 on a cron job with the desired frequency. Your events should show up
 automatically in the target calendar you specified.
+
+## Docker Usage
+
+The project can also be run as a container using supercronic for
+scheduling.
+
+Create a `.env` file with your credentials (see `.env.example` for
+template).
+
+Build and run with Docker Compose:
+
+```
+docker compose up -d
+```
+
+Or with Docker directly:
+
+```
+docker build -t birthday-filter .
+docker run -d --name birthday-filter --env-file .env -v ./data:/data birthday-filter
+```
+
+The default schedule runs daily at 6 AM. To customize the schedule,
+edit the `crontab` file before building the image.
