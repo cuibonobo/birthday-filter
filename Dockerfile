@@ -1,14 +1,25 @@
 FROM python:3.12-slim
 
-# Install system dependencies
+# Install system dependencies and build pimsync from source
 RUN apt-get update && apt-get install -y \
     curl \
-    pipx \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install pimsync via pipx
-RUN pipx install pimsync && pipx ensurepath
-ENV PATH="/root/.local/bin:${PATH}"
+    git \
+    make \
+    cargo \
+    rustc \
+    libsqlite3-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    # Clone and build pimsync
+    && git clone https://git.sr.ht/~whynothugo/pimsync /tmp/pimsync \
+    && cd /tmp/pimsync \
+    && make build \
+    && make install \
+    && cd / \
+    && rm -rf /tmp/pimsync \
+    # Clean up build dependencies to reduce image size
+    && apt-get remove -y git make cargo rustc \
+    && apt-get autoremove -y \
+    && apt-get clean
 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
