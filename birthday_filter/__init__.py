@@ -31,11 +31,6 @@ storage cards {{
   path {card_dir}
 }}
 
-storage cal {{
-  type vdir/icalendar
-  path {cal_dir}
-}}
-
 storage carddav {{
   type carddav
   url {cfg.CARDDAV.url}
@@ -44,25 +39,11 @@ storage carddav {{
   read_only
 }}
 
-storage caldav {{
-  type caldav
-  url {cfg.CALDAV.url}
-  username {cfg.CALDAV.username}
-  password {cfg.CALDAV.password}
-}}
-
 pair card_download {{
   storage_a cards
   storage_b carddav
   collections from b
   conflict_resolution keep b
-}}
-
-pair cal_upload {{
-  storage_a cal
-  storage_b caldav
-  collection {cfg.BIRTHDAY_CALENDAR_ID}
-  conflict_resolution keep a
 }}
         """.strip() + "\n")
     (card_dir / "Default").mkdir(parents=True, exist_ok=True)
@@ -121,5 +102,44 @@ pair cal_upload {{
             f.write("STATUS:CONFIRMED\n")
             f.write("END:VEVENT\n")
             f.write("END:VCALENDAR\n")
-    log("Running pimsync to upload calendar")
-    run_vd("sync", "cal_upload")
+    log("Uploading birthday events to CalDAV using curl")
+    # Upload each .ics file individually using curl (pimsync has issues with Fastmail)
+    success_count = 0
+    error_count = 0
+
+    for event_uuid, (ct_name, ct_month, ct_day) in birthdays.items():
+        ics_file = cal_dir / cfg.BIRTHDAY_CALENDAR_ID / f"{event_uuid}.ics"
+        event_url = f"{cfg.CALDAV.url}dav/calendars/user/{cfg.CALDAV.username}/{cfg.BIRTHDAY_CALENDAR_ID}/{event_uuid}.ics"
+
+        result = subprocess.run(
+            [
+                "curl", "-X", "PUT",
+                "-u", f"{cfg.CALDAV.username}:{cfg.CALDAV.password}",
+                "-H", "Content-Type: text/calendar; charset=utf-8",
+                "--data-binary", f"@{ics_file}",
+                "-w", "\nHTTP_CODE:%{http_code}",
+                "-s",
+                event_url
+            ],
+            capture_output=True,
+            text=True
+        )
+
+        # Parse HTTP response code
+        http_code = None
+        output = result.stdout
+        if "HTTP_CODE:" in output:
+            parts = output.split("HTTP_CODE:")
+            if len(parts) == 2:
+                http_code = parts[1].strip()
+
+        # Check for success (201 Created or 204 No Content)
+        if http_code in ["201", "204"]:
+            success_count += 1
+        else:
+            error_count += 1
+            log(f"  Failed to upload {ct_name} (HTTP {http_code})")
+            if result.stderr.strip():
+                log(f"    Error: {result.stderr.strip()}")
+
+    log(f"Upload complete: {success_count} successful, {error_count} failed")
