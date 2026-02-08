@@ -1,10 +1,10 @@
 from dataclasses import dataclass
 import dotenv
 
-dotenv.load_dotenv()
-
 import os
 from pathlib import Path
+
+dotenv.load_dotenv()
 
 
 @dataclass

@@ -10,7 +10,6 @@ import curses
 import re
 import subprocess
 import sys
-from pathlib import Path
 from typing import Dict, List, Set, Tuple
 
 import birthday_filter.config as cfg
@@ -30,7 +29,8 @@ class ContactSelector:
         self.search_term = ""
         self.message = ""  # Status message to display
         self.card_dir = cfg.DATA_DIR / "pimsync-cards"
-        self.vips_file = self.card_dir / "Default" / "vips.vcf"
+        # Store vips.vcf outside pimsync directory to avoid sync conflicts
+        self.vips_file = cfg.DATA_DIR / "vips.vcf"
         self.vd_cfg_file = cfg.DATA_DIR / "pimsync-config"
         self.vd_status_file = cfg.DATA_DIR / "pimsync-status"
 
@@ -68,11 +68,70 @@ pair card_sync {{
     def download_contacts(self):
         """Download all contacts from CardDAV."""
         log("Downloading contacts from CardDAV (this may take a moment)...")
-        subprocess.run(
+        result = subprocess.run(
             ["pimsync", "-c", str(self.vd_cfg_file), "sync", "card_sync"],
-            check=True
+            capture_output=True,
+            text=True
         )
+
+        # Display pimsync output
+        if result.stdout:
+            for line in result.stdout.splitlines():
+                log(f"  {line}")
+        if result.stderr:
+            for line in result.stderr.splitlines():
+                log(f"  {line}")
+
+        # Check for errors
+        if result.returncode != 0:
+            raise RuntimeError(f"pimsync sync failed with exit code {result.returncode}")
+
         log("Download complete")
+
+        # Remove vips.vcf from pimsync directory if it was downloaded
+        # (we manage this separately via curl to avoid pimsync 403 errors)
+        pimsync_vips = self.card_dir / "Default" / "vips.vcf"
+        if pimsync_vips.exists():
+            pimsync_vips.unlink()
+            log("Removed vips.vcf from pimsync directory (managed separately)")
+
+    def download_vips(self):
+        """Download existing VIP group from server via curl (bypasses pimsync)."""
+        log("Checking for existing VIP group on server...")
+
+        # Construct full CardDAV URL for vips.vcf
+        vips_url = f"{cfg.CARDDAV.url}dav/addressbooks/user/{cfg.CARDDAV.username}/Default/vips.vcf"
+
+        result = subprocess.run(
+            [
+                "curl", "-X", "GET",
+                "-u", f"{cfg.CARDDAV.username}:{cfg.CARDDAV.password}",
+                "-w", "\nHTTP_CODE:%{http_code}",
+                "-s",
+                vips_url
+            ],
+            capture_output=True,
+            text=True
+        )
+
+        # Parse HTTP response code
+        http_code = None
+        output = result.stdout
+        if "HTTP_CODE:" in output:
+            parts = output.split("HTTP_CODE:")
+            if len(parts) == 2:
+                http_code = parts[1].strip()
+                output = parts[0]
+
+        if http_code == "200":
+            # Save the downloaded vips.vcf
+            with open(self.vips_file, "w") as f:
+                f.write(output)
+            log("Existing VIP group downloaded from server")
+        elif http_code == "404":
+            log("No VIP group found on server (will create new one)")
+        else:
+            log(f"Warning: Unexpected response (HTTP {http_code}) when checking for VIP group")
 
     def load_contacts(self):
         """Load all contacts from the downloaded vcard files."""
@@ -124,22 +183,66 @@ pair card_sync {{
         return sorted(filtered, key=lambda x: x[1].lower())
 
     def save_vips(self):
-        """Save VIP list and upload to CardDAV."""
+        """Save VIP list and upload to CardDAV. Returns (success, output_lines)."""
+        from datetime import datetime, timezone
+
+        output_lines = []
+
         # Create vips.vcf file
         with open(self.vips_file, "w") as f:
             f.write("BEGIN:VCARD\n")
             f.write("VERSION:3.0\n")
             f.write("UID:vips\n")
+            f.write("N:VIPs\n")
             f.write("FN:VIPs\n")
-            f.write("N:VIPs;;;;\n")
+            f.write("X-ADDRESSBOOKSERVER-KIND:group\n")  # Critical: marks this as a group vCard
             for uuid in sorted(self.vips):
                 f.write(f"X-ADDRESSBOOKSERVER-MEMBER:urn:uuid:{uuid}\n")
+            # Add revision timestamp (ISO 8601 format)
+            rev_timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            f.write(f"REV:{rev_timestamp}\n")
             f.write("END:VCARD\n")
 
-        subprocess.run(
-            ["pimsync", "-c", str(self.vd_cfg_file), "sync", "card_sync"],
-            check=True
+        # Upload to CardDAV using curl (bypasses pimsync which has issues with groups)
+        output_lines.append("Uploading VIP group to CardDAV server...")
+
+        # Construct full CardDAV URL for vips.vcf
+        vips_url = f"{cfg.CARDDAV.url}dav/addressbooks/user/{cfg.CARDDAV.username}/Default/vips.vcf"
+
+        result = subprocess.run(
+            [
+                "curl", "-X", "PUT",
+                "-u", f"{cfg.CARDDAV.username}:{cfg.CARDDAV.password}",
+                "-H", "Content-Type: text/vcard; charset=utf-8",
+                "--data-binary", f"@{self.vips_file}",
+                "-w", "\nHTTP_CODE:%{http_code}",
+                "-s",  # Silent mode (no progress bar)
+                vips_url
+            ],
+            capture_output=True,
+            text=True
         )
+
+        # Parse HTTP response code from curl output
+        http_code = None
+        output = result.stdout
+        if "HTTP_CODE:" in output:
+            parts = output.split("HTTP_CODE:")
+            if len(parts) == 2:
+                http_code = parts[1].strip()
+                output = parts[0]  # Remove HTTP_CODE from output
+
+        # Check for success (201 Created or 204 No Content)
+        if http_code in ["201", "204"]:
+            output_lines.append(f"  HTTP {http_code}: VIP group uploaded successfully")
+            return True, output_lines
+        else:
+            output_lines.append(f"  HTTP {http_code}: Upload failed")
+            if output.strip():
+                output_lines.append(f"  Response: {output.strip()}")
+            if result.stderr.strip():
+                output_lines.append(f"  Error: {result.stderr.strip()}")
+            return False, output_lines
 
     def draw_screen(self, stdscr):
         """Draw the interface."""
@@ -246,7 +349,7 @@ pair card_sync {{
         # Get input
         try:
             search = stdscr.getstr(height - 2, 8, width - 9).decode('utf-8')
-        except:
+        except Exception:
             search = ""
 
         curses.noecho()
@@ -347,8 +450,8 @@ pair card_sync {{
             elif key == ord('w'):
                 stdscr.addstr(0, 0, f"Saving {len(self.vips)} VIPs and uploading to CardDAV...")
                 stdscr.refresh()
-                self.save_vips()
-                return True
+                success, output = self.save_vips()
+                return (True, success, output)
 
             # Quit without saving
             elif key == ord('q'):
@@ -358,22 +461,33 @@ pair card_sync {{
                 stdscr.refresh()
                 confirm = stdscr.getch()
                 if confirm in [ord('y'), ord('Y')]:
-                    return False
+                    return (False, None, [])
 
     def run(self):
         """Run the interactive contact selector."""
         self.setup_pimsync()
         self.download_contacts()
+        self.download_vips()  # Download VIP group separately via curl
         self.load_contacts()
         self.load_existing_vips()
 
         # Run curses interface
         try:
-            saved = curses.wrapper(self.run_curses)
-            if saved:
-                log("VIP list saved successfully!")
-            else:
-                log("Exited without saving")
+            result = curses.wrapper(self.run_curses)
+            if result:
+                saved, success, output = result
+                # Display pimsync output after curses exits
+                for line in output:
+                    log(line)
+
+                if saved:
+                    if success:
+                        log("VIP list saved successfully!")
+                    else:
+                        log("ERROR: Failed to sync VIPs to CardDAV server!")
+                        sys.exit(1)
+                else:
+                    log("Exited without saving")
         except KeyboardInterrupt:
             log("Interrupted by user")
 
