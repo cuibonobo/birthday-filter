@@ -5,6 +5,7 @@ RUN apt-get update && apt-get install -y \
     curl \
     git \
     make \
+    build-essential \
     libsqlite3-dev \
     && rm -rf /var/lib/apt/lists/* \
     # Install Rust via rustup (Debian's rust is too old)
@@ -39,7 +40,7 @@ RUN curl -fsSLO "https://github.com/aptible/supercronic/releases/download/${SUPE
 WORKDIR /app
 
 # Copy project files
-COPY pyproject.toml ./
+COPY pyproject.toml README.md ./
 COPY birthday_filter/ ./birthday_filter/
 
 # Install Python dependencies
