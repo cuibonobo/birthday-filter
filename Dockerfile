@@ -5,10 +5,11 @@ RUN apt-get update && apt-get install -y \
     curl \
     git \
     make \
-    cargo \
-    rustc \
     libsqlite3-dev \
     && rm -rf /var/lib/apt/lists/* \
+    # Install Rust via rustup (Debian's rust is too old)
+    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable \
+    && . "$HOME/.cargo/env" \
     # Clone and build pimsync
     && git clone https://git.sr.ht/~whynothugo/pimsync /tmp/pimsync \
     && cd /tmp/pimsync \
@@ -16,8 +17,9 @@ RUN apt-get update && apt-get install -y \
     && make install \
     && cd / \
     && rm -rf /tmp/pimsync \
-    # Clean up build dependencies to reduce image size
-    && apt-get remove -y git make cargo rustc \
+    # Clean up Rust and build dependencies to reduce image size
+    && rustup self uninstall -y \
+    && apt-get remove -y git make \
     && apt-get autoremove -y \
     && apt-get clean
 
