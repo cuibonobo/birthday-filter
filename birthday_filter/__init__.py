@@ -125,13 +125,6 @@ pair card_download {{
     )
     run_vd("sync", "card_download")
 
-    # Remove vips.vcf from pimsync directory if it was downloaded
-    # (we manage this separately via curl to avoid pimsync 403 errors)
-    pimsync_vips = card_dir / "Default" / "vips.vcf"
-    if pimsync_vips.exists():
-        pimsync_vips.unlink()
-        log("Removed vips.vcf from pimsync directory (managed separately)")
-
     # Download VIP group directly from server via curl (bypasses pimsync)
     vips_file = cfg.DATA_DIR / "vips.vcf"
     if not download_vips_file(vips_file):
