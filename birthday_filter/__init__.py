@@ -155,7 +155,8 @@ pair card_download {{
                 if m := re.match(r"FN:(.+)$", line):
                     ct_name = m.group(1)
                     continue
-                if m := re.match(r"BDAY[;:].*[0-9]{4}-([0-9]{2})-([0-9]{2})$", line):
+                # Match both extended (YYYY-MM-DD) and basic (YYYYMMDD) formats
+                if m := re.match(r"BDAY[;:].*?[0-9]{4}-?([0-9]{2})-?([0-9]{2})", line):
                     ct_month = int(m.group(1))
                     ct_day = int(m.group(2))
                     continue
