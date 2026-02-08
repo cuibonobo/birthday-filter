@@ -120,9 +120,10 @@ pair card_download {{
         """.strip() + "\n")
     (card_dir / "Default").mkdir(parents=True, exist_ok=True)
     log("Running pimsync to download cards")
-    run_vd = lambda *args: subprocess.run(
-        ["pimsync", "-c", str(vd_cfg_file), *args], check=True
-    )
+    def run_vd(*args):
+        return subprocess.run(
+            ["pimsync", "-c", str(vd_cfg_file), *args], check=True
+        )
     run_vd("sync", "card_download")
 
     # Download VIP group directly from server via curl (bypasses pimsync)
