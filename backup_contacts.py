@@ -43,6 +43,7 @@ def backup_contacts(backup_dir: Optional[Path] = None):
         backup_dir = backups_root / f"contacts_{timestamp}"
 
     backup_dir.mkdir(parents=True, exist_ok=True)
+    temp_dir.mkdir(parents=True, exist_ok=True)
 
     log(f"Creating backup in: {backup_dir}")
 
@@ -121,10 +122,10 @@ pair backup {{
         f.write(f"Backup created: {datetime.now().isoformat()}\n")
         f.write(f"CardDAV URL: {cfg.CARDDAV.url}\n")
         f.write(f"Total contacts: {contact_count}\n")
-        f.write(f"\nTo restore: Copy the .vcf files back to your CardDAV server\n")
-        f.write(f"or import them through your email client interface.\n")
+        f.write("\nTo restore: Copy the .vcf files back to your CardDAV server\n")
+        f.write("or import them through your email client interface.\n")
 
-    log(f"Backup completed successfully!")
+    log("Backup completed successfully!")
     log(f"Backup location: {backup_dir}")
     log(f"Total contacts backed up: {contact_count}")
 
