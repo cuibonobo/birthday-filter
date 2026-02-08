@@ -6,6 +6,7 @@ import subprocess
 from typing import Any
 
 import birthday_filter.config as cfg
+from birthday_filter.dav_upload import upload_to_dav
 
 
 def log(msg):
@@ -111,35 +112,20 @@ pair card_download {{
         ics_file = cal_dir / cfg.BIRTHDAY_CALENDAR_ID / f"{event_uuid}.ics"
         event_url = f"{cfg.CALDAV.url}dav/calendars/user/{cfg.CALDAV.username}/{cfg.BIRTHDAY_CALENDAR_ID}/{event_uuid}.ics"
 
-        result = subprocess.run(
-            [
-                "curl", "-X", "PUT",
-                "-u", f"{cfg.CALDAV.username}:{cfg.CALDAV.password}",
-                "-H", "Content-Type: text/calendar; charset=utf-8",
-                "--data-binary", f"@{ics_file}",
-                "-w", "\nHTTP_CODE:%{http_code}",
-                "-s",
-                event_url
-            ],
-            capture_output=True,
-            text=True
+        success, http_code, error_msg = upload_to_dav(
+            url=event_url,
+            username=cfg.CALDAV.username,
+            password=cfg.CALDAV.password,
+            file_path=ics_file,
+            content_type="text/calendar"
         )
 
-        # Parse HTTP response code
-        http_code = None
-        output = result.stdout
-        if "HTTP_CODE:" in output:
-            parts = output.split("HTTP_CODE:")
-            if len(parts) == 2:
-                http_code = parts[1].strip()
-
-        # Check for success (201 Created or 204 No Content)
-        if http_code in ["201", "204"]:
+        if success:
             success_count += 1
         else:
             error_count += 1
             log(f"  Failed to upload {ct_name} (HTTP {http_code})")
-            if result.stderr.strip():
-                log(f"    Error: {result.stderr.strip()}")
+            if error_msg:
+                log(f"    {error_msg}")
 
     log(f"Upload complete: {success_count} successful, {error_count} failed")

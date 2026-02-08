@@ -13,6 +13,7 @@ import sys
 from typing import Dict, List, Set, Tuple
 
 import birthday_filter.config as cfg
+from birthday_filter.dav_upload import upload_to_dav
 
 
 def log(msg):
@@ -209,39 +210,21 @@ pair card_sync {{
         # Construct full CardDAV URL for vips.vcf
         vips_url = f"{cfg.CARDDAV.url}dav/addressbooks/user/{cfg.CARDDAV.username}/Default/vips.vcf"
 
-        result = subprocess.run(
-            [
-                "curl", "-X", "PUT",
-                "-u", f"{cfg.CARDDAV.username}:{cfg.CARDDAV.password}",
-                "-H", "Content-Type: text/vcard; charset=utf-8",
-                "--data-binary", f"@{self.vips_file}",
-                "-w", "\nHTTP_CODE:%{http_code}",
-                "-s",  # Silent mode (no progress bar)
-                vips_url
-            ],
-            capture_output=True,
-            text=True
+        success, http_code, error_msg = upload_to_dav(
+            url=vips_url,
+            username=cfg.CARDDAV.username,
+            password=cfg.CARDDAV.password,
+            file_path=self.vips_file,
+            content_type="text/vcard"
         )
 
-        # Parse HTTP response code from curl output
-        http_code = None
-        output = result.stdout
-        if "HTTP_CODE:" in output:
-            parts = output.split("HTTP_CODE:")
-            if len(parts) == 2:
-                http_code = parts[1].strip()
-                output = parts[0]  # Remove HTTP_CODE from output
-
-        # Check for success (201 Created or 204 No Content)
-        if http_code in ["201", "204"]:
+        if success:
             output_lines.append(f"  HTTP {http_code}: VIP group uploaded successfully")
             return True, output_lines
         else:
             output_lines.append(f"  HTTP {http_code}: Upload failed")
-            if output.strip():
-                output_lines.append(f"  Response: {output.strip()}")
-            if result.stderr.strip():
-                output_lines.append(f"  Error: {result.stderr.strip()}")
+            if error_msg:
+                output_lines.append(f"  {error_msg}")
             return False, output_lines
 
     def draw_screen(self, stdscr):
