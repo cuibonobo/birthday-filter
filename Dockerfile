@@ -53,4 +53,5 @@ RUN mkdir -p /data
 COPY crontab /app/crontab
 
 # Run supercronic as the main process
-CMD ["supercronic", "/app/crontab"]
+# Use -no-reap to avoid "Failed to fork exec" error when running as PID 1
+CMD ["supercronic", "-no-reap", "/app/crontab"]
