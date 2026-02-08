@@ -1,9 +1,10 @@
-import configparser
+import hashlib
 import json
 import re
 import shutil
 import subprocess
-from typing import Any
+from pathlib import Path
+from typing import Dict
 
 import birthday_filter.config as cfg
 from birthday_filter.dav_upload import upload_to_dav
@@ -11,6 +12,76 @@ from birthday_filter.dav_upload import upload_to_dav
 
 def log(msg):
     print(f"[birthday-filter] {msg}")
+
+
+def load_cache(cache_file: Path) -> Dict[str, str]:
+    """Load the event cache from disk.
+
+    Returns a dict mapping event UUID to content hash.
+    """
+    if not cache_file.exists():
+        return {}
+
+    try:
+        with open(cache_file) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError) as e:
+        log(f"Warning: Failed to load cache ({e}), starting fresh")
+        return {}
+
+
+def save_cache(cache_file: Path, cache: Dict[str, str]) -> None:
+    """Save the event cache to disk."""
+    with open(cache_file, "w") as f:
+        json.dump(cache, f, indent=2)
+
+
+def hash_content(content: str) -> str:
+    """Calculate SHA256 hash of content."""
+    return hashlib.sha256(content.encode('utf-8')).hexdigest()
+
+
+def download_vips_file(vips_file: Path) -> bool:
+    """Download the VIP group file from CardDAV server via curl.
+
+    Returns True if successful, False otherwise.
+    """
+    log("Downloading VIP group from CardDAV server...")
+    vips_url = f"{cfg.CARDDAV.url}dav/addressbooks/user/{cfg.CARDDAV.username}/Default/vips.vcf"
+
+    result = subprocess.run(
+        [
+            "curl", "-X", "GET",
+            "-u", f"{cfg.CARDDAV.username}:{cfg.CARDDAV.password}",
+            "-w", "\nHTTP_CODE:%{http_code}",
+            "-s",
+            vips_url
+        ],
+        capture_output=True,
+        text=True
+    )
+
+    # Parse HTTP response code
+    http_code = None
+    output = result.stdout
+    if "HTTP_CODE:" in output:
+        parts = output.split("HTTP_CODE:")
+        if len(parts) == 2:
+            http_code = parts[1].strip()
+            output = parts[0]
+
+    if http_code == "200":
+        # Save the downloaded vips.vcf
+        with open(vips_file, "w") as f:
+            f.write(output)
+        log("VIP group downloaded successfully")
+        return True
+    elif http_code == "404":
+        log("No VIP group found on server")
+        return False
+    else:
+        log(f"Warning: Failed to download VIP group (HTTP {http_code})")
+        return False
 
 
 def main():
@@ -53,8 +124,22 @@ pair card_download {{
         ["pimsync", "-c", str(vd_cfg_file), *args], check=True
     )
     run_vd("sync", "card_download")
+
+    # Remove vips.vcf from pimsync directory if it was downloaded
+    # (we manage this separately via curl to avoid pimsync 403 errors)
+    pimsync_vips = card_dir / "Default" / "vips.vcf"
+    if pimsync_vips.exists():
+        pimsync_vips.unlink()
+        log("Removed vips.vcf from pimsync directory (managed separately)")
+
+    # Download VIP group directly from server via curl (bypasses pimsync)
+    vips_file = cfg.DATA_DIR / "vips.vcf"
+    if not download_vips_file(vips_file):
+        log("Error: Could not download VIP group, cannot continue")
+        return
+
     log("Extracting list of starred contacts")
-    with open(card_dir / "Default" / "vips.vcf") as f:
+    with open(vips_file) as f:
         contact_uuids = set()
         for line in f:
             if not (m := re.match(r"X-ADDRESSBOOKSERVER-MEMBER:urn:uuid:(.+)$", line)):
@@ -86,46 +171,130 @@ pair card_download {{
     except FileNotFoundError:
         pass
     (cal_dir / cfg.BIRTHDAY_CALENDAR_ID).mkdir(parents=True)
-    for event_uuid, (ct_name, ct_month, ct_day) in birthdays.items():
-        with open(cal_dir / cfg.BIRTHDAY_CALENDAR_ID / f"{event_uuid}.ics", "w") as f:
-            f.write("BEGIN:VCALENDAR\n")
-            f.write("VERSION:2.0\n")
-            f.write("CALSCALE:GREGORIAN\n")
-            f.write("BEGIN:VEVENT\n")
-            f.write(f"UID:{event_uuid}\n")
-            f.write("SEQUENCE:0\n")
-            f.write(f"DTSTAMP:2000{ct_month:02d}{ct_day:02d}T000000Z\n")
-            f.write(f"DTSTART;VALUE=DATE:2000{ct_month:02d}{ct_day:02d}\n")
-            f.write("DURATION:P1D\n")
-            f.write("PRIORITY:0\n")
-            f.write(f"SUMMARY:🎂 {ct_name}\n")
-            f.write("RRULE:FREQ=YEARLY\n")
-            f.write("STATUS:CONFIRMED\n")
-            f.write("END:VEVENT\n")
-            f.write("END:VCALENDAR\n")
-    log("Uploading birthday events to CalDAV using curl")
-    # Upload each .ics file individually using curl (pimsync has issues with Fastmail)
-    success_count = 0
-    error_count = 0
 
+    # Load cache to track what was previously uploaded
+    cache_file = cfg.DATA_DIR / "birthday_cache.json"
+    old_cache = load_cache(cache_file)
+    new_cache = {}
+    # Generate .ics files and calculate hashes
     for event_uuid, (ct_name, ct_month, ct_day) in birthdays.items():
-        ics_file = cal_dir / cfg.BIRTHDAY_CALENDAR_ID / f"{event_uuid}.ics"
-        event_url = f"{cfg.CALDAV.url}dav/calendars/user/{cfg.CALDAV.username}/{cfg.BIRTHDAY_CALENDAR_ID}/{event_uuid}.ics"
-
-        success, http_code, error_msg = upload_to_dav(
-            url=event_url,
-            username=cfg.CALDAV.username,
-            password=cfg.CALDAV.password,
-            file_path=ics_file,
-            content_type="text/calendar"
+        # Build the event content
+        content = (
+            "BEGIN:VCALENDAR\n"
+            "VERSION:2.0\n"
+            "CALSCALE:GREGORIAN\n"
+            "BEGIN:VEVENT\n"
+            f"UID:{event_uuid}\n"
+            "SEQUENCE:0\n"
+            f"DTSTAMP:2000{ct_month:02d}{ct_day:02d}T000000Z\n"
+            f"DTSTART;VALUE=DATE:2000{ct_month:02d}{ct_day:02d}\n"
+            "DURATION:P1D\n"
+            "PRIORITY:0\n"
+            f"SUMMARY:🎂 {ct_name}\n"
+            "RRULE:FREQ=YEARLY\n"
+            "STATUS:CONFIRMED\n"
+            "END:VEVENT\n"
+            "END:VCALENDAR\n"
         )
 
-        if success:
-            success_count += 1
-        else:
-            error_count += 1
-            log(f"  Failed to upload {ct_name} (HTTP {http_code})")
-            if error_msg:
-                log(f"    {error_msg}")
+        # Write to file
+        with open(cal_dir / cfg.BIRTHDAY_CALENDAR_ID / f"{event_uuid}.ics", "w") as f:
+            f.write(content)
 
-    log(f"Upload complete: {success_count} successful, {error_count} failed")
+        # Calculate and store hash for change detection
+        new_cache[event_uuid] = hash_content(content)
+    # Determine what changed
+    events_to_upload = []
+    events_to_delete = []
+
+    for event_uuid, (ct_name, ct_month, ct_day) in birthdays.items():
+        if event_uuid not in old_cache:
+            # New event
+            events_to_upload.append((event_uuid, ct_name, "new"))
+        elif old_cache[event_uuid] != new_cache[event_uuid]:
+            # Modified event
+            events_to_upload.append((event_uuid, ct_name, "modified"))
+        # else: unchanged, skip upload
+
+    # Find events to delete (in old cache but not in new set)
+    for event_uuid in old_cache:
+        if event_uuid not in new_cache:
+            events_to_delete.append(event_uuid)
+
+    # Report what will be synced
+    if not events_to_upload and not events_to_delete:
+        log("No changes detected, skipping upload")
+    else:
+        log(f"Changes detected: {len(events_to_upload)} to upload, {len(events_to_delete)} to delete")
+
+        # Upload changed/new events
+        if events_to_upload:
+            log("Uploading changed/new events to CalDAV...")
+            upload_success = 0
+            upload_error = 0
+
+            for event_uuid, ct_name, change_type in events_to_upload:
+                ics_file = cal_dir / cfg.BIRTHDAY_CALENDAR_ID / f"{event_uuid}.ics"
+                event_url = f"{cfg.CALDAV.url}dav/calendars/user/{cfg.CALDAV.username}/{cfg.BIRTHDAY_CALENDAR_ID}/{event_uuid}.ics"
+
+                success, http_code, error_msg = upload_to_dav(
+                    url=event_url,
+                    username=cfg.CALDAV.username,
+                    password=cfg.CALDAV.password,
+                    file_path=ics_file,
+                    content_type="text/calendar"
+                )
+
+                if success:
+                    upload_success += 1
+                    log(f"  ✓ {ct_name} ({change_type})")
+                else:
+                    upload_error += 1
+                    log(f"  ✗ {ct_name} (HTTP {http_code})")
+                    if error_msg:
+                        log(f"    {error_msg}")
+
+            log(f"Upload complete: {upload_success} successful, {upload_error} failed")
+
+        # Delete removed events
+        if events_to_delete:
+            log("Deleting removed events from CalDAV...")
+            delete_success = 0
+            delete_error = 0
+
+            for event_uuid in events_to_delete:
+                event_url = f"{cfg.CALDAV.url}dav/calendars/user/{cfg.CALDAV.username}/{cfg.BIRTHDAY_CALENDAR_ID}/{event_uuid}.ics"
+
+                result = subprocess.run(
+                    [
+                        "curl", "-X", "DELETE",
+                        "-u", f"{cfg.CALDAV.username}:{cfg.CALDAV.password}",
+                        "-w", "\nHTTP_CODE:%{http_code}",
+                        "-s",
+                        event_url
+                    ],
+                    capture_output=True,
+                    text=True
+                )
+
+                # Parse HTTP response code
+                http_code = None
+                output = result.stdout
+                if "HTTP_CODE:" in output:
+                    parts = output.split("HTTP_CODE:")
+                    if len(parts) == 2:
+                        http_code = parts[1].strip()
+
+                # Check for success (204 No Content or 404 Not Found - already deleted)
+                if http_code in ["204", "404"]:
+                    delete_success += 1
+                    log(f"  ✓ Deleted {event_uuid}")
+                else:
+                    delete_error += 1
+                    log(f"  ✗ Failed to delete {event_uuid} (HTTP {http_code})")
+
+            log(f"Delete complete: {delete_success} successful, {delete_error} failed")
+
+    # Save updated cache
+    save_cache(cache_file, new_cache)
+    log("Cache updated")
